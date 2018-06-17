@@ -187,7 +187,7 @@ impl<W> WavWriter<W>
         // more widely supported. For more than two channels or more than 16
         // bits per sample, the newer WAVEFORMATEXTENSIBLE is required. See also
         // https://msdn.microsoft.com/en-us/library/ms713497.aspx.
-        let fmt_kind = if spec.channels > 2 || spec.bits_per_sample > 16 {
+        let fmt_kind = if spec.channels > 2 || spec.bits_per_sample > 24 {
             FmtKind::WaveFormatExtensible
         } else {
             FmtKind::PcmWaveFormat
