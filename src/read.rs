@@ -16,7 +16,7 @@ use std::io;
 use std::marker;
 use std::mem;
 use std::path;
-use super::{Error, Result, Sample, SampleFormat, WavSpec};
+use super::{Error, Result, Sample, SampleFormat, SampleLoop, SamplerSpec, WavSpec};
 
 /// Extends the functionality of `io::Read` with additional methods.
 ///
@@ -258,6 +258,8 @@ pub enum Chunk<'r, R: 'r + io::Read> {
     Fact,
     /// data chunk, where the samples are actually stored
     Data,
+    /// sampler chunk, where the information for sampler stored
+    Smpl(SamplerSpec),
     /// any other riff chunk
     Unknown([u8; 4], EmbeddedReader<'r, R>),
 }
@@ -275,6 +277,8 @@ pub struct ChunksReader<R: io::Read> {
     /// when inside the main data state, keeps track of decoding and chunk
     /// boundaries
     pub data_state: Option<DataReadingState>,
+    /// the specification of contained audio fragment for sampler
+    pub smpl_spec: Option<SamplerSpec>,
 }
 
 /// This struct helps represent the inner state of the ChunksReader
@@ -298,6 +302,7 @@ impl<R: io::Read> ChunksReader<R> {
             reader: reader,
             spec_ex: None,
             data_state: None,
+            smpl_spec: None,
         })
     }
 
@@ -391,6 +396,11 @@ impl<R: io::Read> ChunksReader<R> {
                 } else {
                     Err(Error::FormatError("missing fmt chunk"))
                 }
+            }
+            b"smpl" => {
+                let smpl_spec = try!(self.read_smpl_chunk(len));
+                self.smpl_spec = Some(smpl_spec.clone());
+                Ok(Some(Chunk::Smpl(smpl_spec)))
             }
             _ => {
                 let reader = EmbeddedReader {
@@ -658,6 +668,52 @@ impl<R: io::Read> ChunksReader<R> {
         Ok(spec_ex)
     }
 
+    fn read_smpl_chunk(&mut self, _chunk_len: u32) -> Result<SamplerSpec> {
+        // TODO Calculate actual chunk length and compare with provided
+        let manufacturer = try!(self.reader.read_le_u32());
+        let product = try!(self.reader.read_le_u32());
+        let sample_period = try!(self.reader.read_le_u32());
+        let midi_unity_note = try!(self.reader.read_le_u32());
+        let midi_pitch_fraction = try!(self.reader.read_le_u32());
+        let smpte_format = try!(self.reader.read_le_u32());
+        let smpte_offset = try!(self.reader.read_le_u32());
+        // Quantity of `Loop` structs
+        let sample_loops = try!(self.reader.read_le_u32());
+        // Additional sampler data padded out to even number of bytes
+        let sampler_data = try!(self.reader.read_le_u32());
+        let mut loops = Vec::new();
+        for _ in 0..sample_loops {
+            let identifier = try!(self.reader.read_le_u32());
+            let loop_type = try!(self.reader.read_le_u32());
+            let start = try!(self.reader.read_le_u32());
+            let end = try!(self.reader.read_le_u32());
+            let fraction = try!(self.reader.read_le_u32());
+            let play_count = try!(self.reader.read_le_u32());
+            let sample_loop = SampleLoop {
+                identifier,
+                loop_type,
+                start,
+                end,
+                fraction,
+                play_count,
+            };
+            loops.push(sample_loop);
+        }
+        let data = try!(self.reader.read_bytes(sampler_data as usize));
+        let spec = SamplerSpec {
+            manufacturer,
+            product,
+            sample_period,
+            midi_unity_note,
+            midi_pitch_fraction,
+            smpte_format,
+            smpte_offset,
+            loops,
+            data,
+        };
+        Ok(spec)
+    }
+
 
     pub fn into_inner(self) -> R {
         self.reader
@@ -791,6 +847,11 @@ impl<R> WavReader<R>
         self.reader.spec_ex
             .expect("Using a WavReader wrapping a ChunkReader with no spec")
             .spec
+    }
+
+    /// Returns information for sampler if exists.
+    pub fn sampler_spec(&self) -> Option<SamplerSpec> {
+        self.reader.smpl_spec.clone()
     }
 
     /// Returns an iterator over all samples.

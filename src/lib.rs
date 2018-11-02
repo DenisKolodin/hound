@@ -320,6 +320,30 @@ pub struct WavSpec {
     pub sample_format: SampleFormat,
 }
 
+/// Specifies properties of audio fragment for sampler.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SamplerSpec {
+    pub manufacturer: u32,
+    pub product: u32,
+    pub sample_period: u32,
+    pub midi_unity_note: u32,
+    pub midi_pitch_fraction: u32,
+    pub smpte_format: u32,
+    pub smpte_offset: u32,
+    pub loops: Vec<SampleLoop>,
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SampleLoop {
+    pub identifier: u32,
+    pub loop_type: u32,
+    pub start: u32,
+    pub end: u32,
+    pub fraction: u32,
+    pub play_count: u32,
+}
+
 /// The error type for operations on `WavReader` and `WavWriter`.
 #[derive(Debug)]
 pub enum Error {
