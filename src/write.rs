@@ -15,7 +15,7 @@ use std::io;
 use std::mem;
 use std::io::{Seek, Write};
 use std::path;
-use super::{Error, Result, Sample, SampleFormat, WavSpec};
+use super::{Error, Result, Sample, SampleFormat, SamplerSpec, WavSpec};
 use ::read;
 use ::read::WavSpecEx;
 
@@ -139,6 +139,9 @@ pub struct WavWriter<W>
     /// Specifies properties of the audio data.
     spec: WavSpec,
 
+    /// Specifies properties of samples.
+    sampler_spec: Option<SamplerSpec>,
+
     /// The (container) bytes per sample. This is the bit rate / 8 rounded up.
     bytes_per_sample: u16,
 
@@ -183,6 +186,12 @@ impl<W> WavWriter<W>
     /// This writes parts of the header immediately, hence a `Result` is
     /// returned.
     pub fn new(writer: W, spec: WavSpec) -> Result<WavWriter<W>> {
+        WavWriter::new_with_sampler_spec(writer, spec, None)
+    }
+
+    pub fn new_with_sampler_spec(writer: W, spec: WavSpec, sampler_spec: Option<SamplerSpec>)
+        -> Result<WavWriter<W>>
+    {
         // Write the older PCMWAVEFORMAT structure if possible, because it is
         // more widely supported. For more than two channels or more than 16
         // bits per sample, the newer WAVEFORMATEXTENSIBLE is required. See also
@@ -195,6 +204,7 @@ impl<W> WavWriter<W>
 
         let mut writer = WavWriter {
             spec: spec,
+            sampler_spec: sampler_spec,
             bytes_per_sample: (spec.bits_per_sample + 7) / 8,
             writer: writer,
             data_bytes_written: 0,
@@ -252,6 +262,8 @@ impl<W> WavWriter<W>
                     try!(self.write_waveformatextensible(&mut buffer));
                 }
             }
+
+            try!(self.write_samplerchunk(&mut buffer));
 
             // Finally the header of the "data" chunk. The number of bytes
             // that this will take is not known at this point. The 0 will
@@ -373,6 +385,42 @@ impl<W> WavWriter<W>
         };
         try!(buffer.write_all(&subformat_guid));
 
+        Ok(())
+    }
+
+    fn write_samplerchunk(&mut self, buffer: &mut io::Cursor<&mut [u8]>)
+        -> io::Result<()>
+    {
+        if let Some(ref spec) = self.sampler_spec {
+            try!(buffer.write_all(b"smpl"));
+            // Calculate and write the size of the SMPL header chunk.
+            let size = 36 + 24 * spec.loops.len() + spec.data.len();
+            try!(buffer.write_le_u32(size as u32));
+
+            // Writes `SamplerSpec`
+            try!(buffer.write_le_u32(spec.manufacturer));
+            try!(buffer.write_le_u32(spec.product));
+            try!(buffer.write_le_u32(spec.sample_period));
+            try!(buffer.write_le_u32(spec.midi_unity_note));
+            try!(buffer.write_le_u32(spec.midi_pitch_fraction));
+            try!(buffer.write_le_u32(spec.smpte_format));
+            try!(buffer.write_le_u32(spec.smpte_offset));
+            try!(buffer.write_le_u32(spec.loops.len() as u32));
+            try!(buffer.write_le_u32(spec.data.len() as u32));
+
+            // Writes `SamplerLoop` structs
+            for sample_loop in &spec.loops {
+                try!(buffer.write_le_u32(sample_loop.identifier));
+                try!(buffer.write_le_u32(sample_loop.loop_type));
+                try!(buffer.write_le_u32(sample_loop.start));
+                try!(buffer.write_le_u32(sample_loop.end));
+                try!(buffer.write_le_u32(sample_loop.fraction));
+                try!(buffer.write_le_u32(sample_loop.play_count));
+            }
+
+            // Writes sampler data
+            try!(buffer.write_all(&spec.data));
+        }
         Ok(())
     }
 
@@ -624,6 +672,7 @@ impl WavWriter<io::BufWriter<fs::File>> {
 
         let writer = WavWriter {
             spec: spec_ex.spec,
+            sampler_spec: None,
             bytes_per_sample: spec_ex.bytes_per_sample,
             writer: buf_writer,
             data_bytes_written: data_len,
@@ -654,6 +703,7 @@ impl<W> WavWriter<W> where W: io::Read + io::Write + io::Seek {
         try!(writer.seek(io::SeekFrom::Current(data_len as i64)));
         let writer = WavWriter {
             spec: spec_ex.spec,
+            sampler_spec: None,
             bytes_per_sample: spec_ex.bytes_per_sample,
             writer: writer,
             data_bytes_written: data_len,
