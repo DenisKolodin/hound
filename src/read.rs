@@ -668,8 +668,7 @@ impl<R: io::Read> ChunksReader<R> {
         Ok(spec_ex)
     }
 
-    fn read_smpl_chunk(&mut self, _chunk_len: u32) -> Result<SamplerSpec> {
-        // TODO Calculate actual chunk length and compare with provided
+    fn read_smpl_chunk(&mut self, chunk_len: u32) -> Result<SamplerSpec> {
         let manufacturer = try!(self.reader.read_le_u32());
         let product = try!(self.reader.read_le_u32());
         let sample_period = try!(self.reader.read_le_u32());
@@ -681,6 +680,7 @@ impl<R: io::Read> ChunksReader<R> {
         let sample_loops = try!(self.reader.read_le_u32());
         // Additional sampler data padded out to even number of bytes
         let sampler_data = try!(self.reader.read_le_u32());
+        let mut bytes_read = 36;
         let mut loops = Vec::new();
         for _ in 0..sample_loops {
             let identifier = try!(self.reader.read_le_u32());
@@ -689,6 +689,7 @@ impl<R: io::Read> ChunksReader<R> {
             let end = try!(self.reader.read_le_u32());
             let fraction = try!(self.reader.read_le_u32());
             let play_count = try!(self.reader.read_le_u32());
+            bytes_read += 24;
             let sample_loop = SampleLoop {
                 identifier,
                 loop_type,
@@ -699,7 +700,8 @@ impl<R: io::Read> ChunksReader<R> {
             };
             loops.push(sample_loop);
         }
-        let data = try!(self.reader.read_bytes(sampler_data as usize));
+        let bytes_to_read = cmp::max(sampler_data, chunk_len - bytes_read);
+        let data = try!(self.reader.read_bytes(bytes_to_read as usize));
         let spec = SamplerSpec {
             manufacturer,
             product,

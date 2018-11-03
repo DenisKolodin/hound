@@ -300,6 +300,18 @@ pub enum SampleFormat {
     Int,
 }
 
+impl fmt::Display for SampleFormat {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let value = {
+            match self {
+                SampleFormat::Float => "WAVE_FORMAT_IEEE_FLOAT",
+                SampleFormat::Int => "WAVE_FORMAT_PCM",
+            }
+        };
+        f.write_str(value)
+    }
+}
+
 /// Specifies properties of the audio data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WavSpec {
