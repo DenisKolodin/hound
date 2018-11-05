@@ -210,15 +210,12 @@ impl<W> WavWriter<W>
             data_bytes_written: 0,
             sample_writer_buffer: Vec::new(),
             finalized: false,
-            data_len_offset: match fmt_kind {
-                FmtKind::WaveFormatExtensible => 64,
-                FmtKind::PcmWaveFormat => 40,
-            },
+            data_len_offset: 0,
         };
 
         // Hound can only write those bit depths. If something else was
         // requested, fail early, rather than writing a header but then failing
-        // at the first sample.
+        // at the first sample.u
         let supported = match spec.bits_per_sample {
             8 => true,
             16 => true,
@@ -240,10 +237,9 @@ impl<W> WavWriter<W>
     /// Writes the RIFF WAVE header, fmt chunk, and data chunk header.
     fn write_headers(&mut self, fmt_kind: FmtKind) -> io::Result<()> {
         // Write to an in-memory buffer before writing to the underlying writer.
-        let mut header = [0u8; 68];
+        let header = Vec::new();
 
-        {
-            let mut buffer = io::Cursor::new(&mut header[..]);
+            let mut buffer = io::Cursor::new(header);
 
             // Write the headers for the RIFF WAVE format.
             try!(buffer.write_all(b"RIFF"));
@@ -270,19 +266,20 @@ impl<W> WavWriter<W>
             // be overwritten later.
             try!(buffer.write_all(b"data"));
             try!(buffer.write_le_u32(0));
-        }
 
+        let header = buffer.into_inner();
         // The data length field are the last 4 bytes of the header.
-        let header_len = self.data_len_offset as usize + 4;
+        //let header_len = self.data_len_offset as usize + 4;
+        self.data_len_offset = header.len() as u32 - 4;
 
-        self.writer.write_all(&header[..header_len])
+        self.writer.write_all(&header[..])
     }
 
     /// Writes the spec as a WAVEFORMAT structure.
     ///
     /// The `WAVEFORMAT` struct is a subset of both `WAVEFORMATEX` and
     /// `WAVEFORMATEXTENSIBLE`. This does not write the `wFormatTag` member.
-    fn write_waveformat(&self, buffer: &mut io::Cursor<&mut [u8]>) -> io::Result<()> {
+    fn write_waveformat(&self, buffer: &mut io::Cursor<Vec<u8>>) -> io::Result<()> {
         let spec = &self.spec;
         // The field nChannels.
         try!(buffer.write_le_u16(spec.channels));
@@ -303,7 +300,7 @@ impl<W> WavWriter<W>
     }
 
     /// Writes the content of the fmt chunk as PCMWAVEFORMAT struct.
-    fn write_pcmwaveformat(&mut self, buffer: &mut io::Cursor<&mut [u8]>) -> io::Result<()> {
+    fn write_pcmwaveformat(&mut self, buffer: &mut io::Cursor<Vec<u8>>) -> io::Result<()> {
         // Write the size of the WAVE header chunk.
         try!(buffer.write_le_u32(16));
 
@@ -342,7 +339,7 @@ impl<W> WavWriter<W>
     }
 
     /// Writes the contents of the fmt chunk as WAVEFORMATEXTENSIBLE struct.
-    fn write_waveformatextensible(&mut self, buffer: &mut io::Cursor<&mut [u8]>) -> io::Result<()> {
+    fn write_waveformatextensible(&mut self, buffer: &mut io::Cursor<Vec<u8>>) -> io::Result<()> {
         // Write the size of the WAVE header chunk.
         try!(buffer.write_le_u32(40));
 
@@ -388,7 +385,7 @@ impl<W> WavWriter<W>
         Ok(())
     }
 
-    fn write_samplerchunk(&mut self, buffer: &mut io::Cursor<&mut [u8]>)
+    fn write_samplerchunk(&mut self, buffer: &mut io::Cursor<Vec<u8>>)
         -> io::Result<()>
     {
         if let Some(ref spec) = self.sampler_spec {
